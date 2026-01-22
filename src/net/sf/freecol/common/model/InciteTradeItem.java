@@ -34,6 +34,8 @@ public class InciteTradeItem extends TradeItem {
     
     public static final String TAG = "inciteTradeItem";
 
+    private static final double BASE_INCITE_COST = 50.0;
+
     /** The victim player. */
     private Player victim;
 
@@ -63,6 +65,10 @@ public class InciteTradeItem extends TradeItem {
      */
     public InciteTradeItem(Game game, FreeColXMLReader xr) throws XMLStreamException {
         super(game, xr);
+    }
+
+    public static double getBaseInciteCost() {
+        return BASE_INCITE_COST;
     }
 
 
@@ -105,18 +111,37 @@ public class InciteTradeItem extends TradeItem {
     /**
      * {@inheritDoc}
      */
+    @Override
     public int evaluateFor(Player player) {
+        if (!isValid()) {
+            return INVALID_TRADE_ITEM;
+        }
+
         final Player victim = getVictim();
         switch (player.getStance(victim)) {
-        case ALLIANCE:
-            return INVALID_TRADE_ITEM;
-        case WAR: // Not invalid, other player may not know our stance
-            return 0;
-        default:
-            break;
+            case ALLIANCE: return INVALID_TRADE_ITEM;
+            case WAR:      return 0;
+            default:       break;
         }
-        // FIXME: magic#, needs rebalancing
-        return -(int)Math.round(50.0 / player.getStrengthRatio(victim, false));
+
+        double ratio = player.getStrengthRatio(victim, false);
+
+        // Handle error, undefined, or negative ratio → treat as "unknown strength"
+        if (Double.isNaN(ratio) || ratio < 0.0) {
+            ratio = 0.5; // neutral fallback (equal strength)
+        }
+        // Handle real zero strength → treat as extremely weak
+        else if (ratio == 0.0) {
+            ratio = 0.1; // very weak fallback
+        }
+
+        // Base calculation
+        int cost = (int) Math.round(BASE_INCITE_COST / ratio);
+
+        // Direction:
+        // If the AI is the destination (being asked to fight), this is a COST → negative
+        // If the AI is the source (offering to fight), this is a BENEFIT → positive
+        return (getDestination() == player) ? -cost : cost;
     }
     
 

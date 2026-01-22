@@ -79,6 +79,7 @@ import net.sf.freecol.common.model.GoldTradeItem;
 import net.sf.freecol.common.model.Goods;
 import net.sf.freecol.common.model.GoodsType;
 import net.sf.freecol.common.model.HistoryEvent;
+import net.sf.freecol.common.model.InciteTradeItem;
 import net.sf.freecol.common.model.Location;
 import net.sf.freecol.common.model.Map;
 import net.sf.freecol.common.model.Market;
@@ -2817,25 +2818,78 @@ public class EuropeanAIPlayer extends MissionAIPlayer {
             }
 
             if (result == null) {
+                double threshold = InciteTradeItem.getBaseInciteCost();
                 // Dump the negative offers until the sum is non-negative.
                 // Return a proposal with items we like/can accept, or reject
                 // if none are left.
                 for (Entry<TradeItem, Integer> e
-                         : mapEntriesByValue(scores, ascendingIntegerComparator)) {
+                        : mapEntriesByValue(scores, ascendingIntegerComparator)) {
                     if (value >= 0) break;
+
                     TradeItem item = e.getKey();
-                    value -= e.getValue();
-                    if (value >= 50 && item instanceof GoldTradeItem) {
-                        // Counter offer smaller amount of gold, FIXME: magic#
-                        GoldTradeItem gti = (GoldTradeItem)item;
-                        gti.setGold(gti.getGold() - value / 2);
-                        value /= 2;
-                        lb.add("  Reducing gold item to ", gti.getGold(), ".");
+                    int score = e.getValue();
+
+                    if (item instanceof ColonyTradeItem || item instanceof InciteTradeItem) {
+                        // For expensive services (colonies, inciting wars), try to keep the item
+                        // and demand enough gold from the human to compensate.
+
+                        int goldCompensation;
+                        if (item instanceof InciteTradeItem) {
+                            // InciteTradeItem usually has an explicit gold cost.
+                            goldCompensation = ((InciteTradeItem) item).getGold();
+                        } else {
+                            // ColonyTradeItem: fall back to a heuristic based on the AI score.
+                            // The score is negative, so invert and clamp to a sane minimum.
+                            goldCompensation = Math.max(0, -score);
+                        }
+
+                        if (goldCompensation > 0) {
+                            // Look for existing human gold in the agreement.
+                            GoldTradeItem humanGold = null;
+                            for (TradeItem ti : agreement.getItems()) {
+                                if (ti instanceof GoldTradeItem
+                                        && ti.getSource() == other
+                                        && ti.getDestination() == player) {
+                                    humanGold = (GoldTradeItem) ti;
+                                    break;
+                                }
+                            }
+
+                            if (humanGold != null) {
+                                humanGold.setGold(humanGold.getGold() + goldCompensation);
+                            } else {
+                                agreement.add(new GoldTradeItem(player.getGame(), other, player, goldCompensation));
+                            }
+
+                            value += goldCompensation;
+                            lb.add("  Added gold compensation for ", item,
+                                   " (", goldCompensation, "), value now = ", value, ".");
+                        } else {
+                            // No meaningful compensation possible, fall back to pruning.
+                            value -= score;
+                            agreement.remove(item);
+                            lb.add("  Dropped expensive item ", item,
+                                   " (no compensation), value now = ", value, ".");
+                        }
+
+                    } else if (item instanceof GoldTradeItem
+                            && value >= threshold) {
+                        GoldTradeItem gti = (GoldTradeItem) item;
+                        int reduction = value / 2;
+                        gti.setGold(gti.getGold() - reduction);
+                        value -= reduction;
+                        lb.add("  Reduced gold item to ", gti.getGold(),
+                               " (threshold ", threshold,
+                               "), value now = ", value, ".");
+
                     } else {
+                        // Standard pruning for minor items (stance changes, etc.)
+                        value -= score;
                         agreement.remove(item);
                         lb.add("  Dropped ", item, ", value now = ", value, ".");
                     }
                 }
+
                 if (value >= 0 && !agreement.isEmpty()) {
                     result = TradeStatus.PROPOSE_TRADE;
                     lb.add("  Pruned until acceptable at ", value, ".");
