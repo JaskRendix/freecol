@@ -557,5 +557,47 @@ public class UnitTest extends FreeColTestCase {
                 assertFalse(type.hasMaximumAttrition());
             }
         }
-    }        
+    }
+
+    public void testIsAtSeaAndDirectionToEurope() {
+        Game game = getStandardGame();
+        Map map = getTestMap();
+        game.changeMap(map);
+        Player dutch = game.getPlayerByNationId("model.nation.dutch");
+        HighSeas hs = dutch.getHighSeas();
+        Europe europe = dutch.getEurope();
+        Unit u = new ServerUnit(game, hs, dutch, caravelType);
+        u.setDestination(europe);
+        assertTrue("Unit should be at sea", u.isAtSea());
+        assertTrue("Unit should be sailing to Europe", u.isSailingToEurope());
+        assertFalse("Unit should not be sailing to New World", u.isSailingToNewWorld());
+    }
+
+    public void testIsAtSeaAndDirectionToNewWorld() {
+        Game game = getStandardGame();
+        Map map = getTestMap();
+        game.changeMap(map);
+        Player dutch = game.getPlayerByNationId("model.nation.dutch");
+        HighSeas hs = dutch.getHighSeas();
+        Unit u = new ServerUnit(game, hs, dutch, caravelType);
+        u.setDestination(map);
+        assertTrue("Unit should be at sea", u.isAtSea());
+        assertTrue("Unit should be sailing to New World", u.isSailingToNewWorld());
+        assertFalse("Unit should not be sailing to Europe", u.isSailingToEurope());
+    }
+
+    public void testCarrierPassengerDirection() {
+        Game game = getStandardGame();
+        Map map = getTestMap();
+        game.changeMap(map);
+        Player dutch = game.getPlayerByNationId("model.nation.dutch");
+        HighSeas hs = dutch.getHighSeas();
+        Europe europe = dutch.getEurope();
+        Unit carrier = new ServerUnit(game, hs, dutch, galleonType);
+        carrier.setDestination(europe);
+        Unit passenger = new ServerUnit(game, carrier, dutch, colonistType);
+        assertTrue("Passenger should be at sea via carrier", passenger.isAtSea());
+        assertFalse("Passengers do not have their own destination", passenger.isSailingToEurope());
+        assertFalse("Passenger should not be sailing to New World", passenger.isSailingToNewWorld());
+    }
 }
