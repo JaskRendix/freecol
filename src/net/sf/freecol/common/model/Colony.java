@@ -162,6 +162,8 @@ public class Colony extends Settlement implements TradeLocation {
     /** Contains information about production and consumption. */
     private final ProductionCache productionCache = new ProductionCache(this);
 
+    private final OccupationPlanner occupationPlanner = new OccupationPlanner(this);
+
     /** The occupation tracing status.  Do not serialize. */
     private boolean traceOccupation = false;
 
@@ -468,23 +470,6 @@ public class Colony extends Settlement implements TradeLocation {
         return ret;
     }
 
-    private void accumulateChoices(Collection<GoodsType> workTypes,
-                                   Collection<GoodsType> tried,
-                                   List<Collection<GoodsType>> result) {
-        workTypes.removeAll(tried);
-        if (!workTypes.isEmpty()) {
-            result.add(workTypes);
-            tried.addAll(workTypes);
-        }
-    }
-
-    private void accumulateChoice(GoodsType workType,
-                                  Collection<GoodsType> tried,
-                                  List<Collection<GoodsType>> result) {
-        if (workType == null) return;
-        accumulateChoices(workType.getEquivalentTypes(), tried, result);
-    }
-
     /**
      * Get a list of collections of goods types, in order of priority
      * to try to produce in this colony by a given unit.
@@ -496,41 +481,7 @@ public class Colony extends Settlement implements TradeLocation {
      */
     public List<Collection<GoodsType>> getWorkTypeChoices(Unit unit,
                                                           boolean userMode) {
-        final Specification spec = getSpecification();
-        List<Collection<GoodsType>> result = new ArrayList<>();
-        Set<GoodsType> tried = new HashSet<>();
-
-        // Find the food and non-food goods types required by this unit
-        // and which are underproduced at present.
-        Set<GoodsType> food = new HashSet<>();
-        Set<GoodsType> nonFood = new HashSet<>();
-        for (AbstractGoods ag : transform(unit.getType().getConsumedGoods(),
-                g -> productionCache.getNetProductionOf(g.getType())
-                        < g.getAmount())) {
-            if (ag.isFoodType()) {
-                food.addAll(ag.getType().getEquivalentTypes());
-            } else {
-                nonFood.addAll(ag.getType().getEquivalentTypes());
-            }
-        }
-
-        if (userMode) { // Favour current and expert types in user mode
-            accumulateChoice(unit.getWorkType(), tried, result);
-            accumulateChoice(unit.getType().getExpertProduction(), tried, result);
-            accumulateChoice(unit.getExperienceType(), tried, result);
-            accumulateChoices(food, tried, result);
-            accumulateChoices(nonFood, tried, result);
-        } else { // Otherwise favour the required goods types
-            accumulateChoices(food, tried, result);
-            accumulateChoices(nonFood, tried, result);
-            accumulateChoice(unit.getWorkType(), tried, result);
-            accumulateChoice(unit.getType().getExpertProduction(), tried, result);
-            accumulateChoice(unit.getExperienceType(), tried, result);
-        }
-        accumulateChoices(spec.getFoodGoodsTypeList(), tried, result);
-        accumulateChoices(spec.getNewWorldLuxuryGoodsTypeList(), tried, result);
-        accumulateChoices(spec.getGoodsTypeList(), tried, result);
-        return result;
+        return occupationPlanner.getWorkTypeChoices(unit, userMode);
     }
 
     /**
@@ -545,21 +496,12 @@ public class Colony extends Settlement implements TradeLocation {
      * @return An {@code Occupation} for the given unit, or null
      *     if none found.
      */
-    private Occupation getOccupationFor(Unit unit,
-                                        Collection<GoodsType> workTypes,
-                                        LogBuilder lb) {
-        if (workTypes.isEmpty()) return null;
-
-        Occupation best = new Occupation(null, null, null);
-        int bestAmount = 0;
-        for (WorkLocation wl : getCurrentWorkLocationsList()) {
-            bestAmount = best.improve(unit, wl, bestAmount, workTypes, lb);
-        }
-
-        if (best.workLocation != null) {
-            lb.add("\n  => ", best, " = ", bestAmount);
-        }
-        return (best.workLocation == null) ? null : best;
+    private Occupation getOccupationFor(
+            Unit unit,
+            Collection<GoodsType> workTypes,
+            LogBuilder lb) {
+        return occupationPlanner.getOccupationFor(
+                unit, workTypes, lb);
     }
 
     /**
@@ -573,16 +515,11 @@ public class Colony extends Settlement implements TradeLocation {
      * @return An {@code Occupation} for the given unit, or
      *     null if none found.
      */
-    private Occupation getOccupationFor(Unit unit, boolean userMode,
-                                        LogBuilder lb) {
-        for (Collection<GoodsType> types : getWorkTypeChoices(unit, userMode)) {
-            lb.add("\n  ");
-            FreeColObject.logFreeColObjects(types, lb);
-            Occupation occupation = getOccupationFor(unit, types, lb);
-            if (occupation != null) return occupation;
-        }
-        lb.add("\n  => FAILED");
-        return null;
+    private Occupation getOccupationFor(
+            Unit unit,
+            boolean userMode,
+            LogBuilder lb) {
+        return occupationPlanner.getOccupationFor(unit, userMode, lb);
     }
 
     /**
@@ -596,16 +533,10 @@ public class Colony extends Settlement implements TradeLocation {
      * @return An {@code Occupation} for the given unit, or null
      *     if none found.
      */
-    private Occupation getOccupationFor(Unit unit,
-                                        Collection<GoodsType> workTypes) {
-        LogBuilder lb = new LogBuilder((getOccupationTrace()) ? 64 : 0);
-        lb.add(getName(), ".getOccupationFor(", unit, ", ");
-        FreeColObject.logFreeColObjects(workTypes, lb);
-        lb.add(")");
-
-        Occupation occupation = getOccupationFor(unit, workTypes, lb);
-        lb.log(logger, Level.WARNING);
-        return occupation;
+    private Occupation getOccupationFor(
+            Unit unit,
+            Collection<GoodsType> workTypes) {
+        return occupationPlanner.getOccupationFor(unit, workTypes);
     }
 
     /**
@@ -618,13 +549,10 @@ public class Colony extends Settlement implements TradeLocation {
      * @return An {@code Occupation} for the given unit, or
      *     null if none found.
      */
-    private Occupation getOccupationFor(Unit unit, boolean userMode) {
-        LogBuilder lb = new LogBuilder((getOccupationTrace()) ? 64 : 0);
-        lb.add(getName(), ".getOccupationFor(", unit, ")");
-
-        Occupation occupation = getOccupationFor(unit, userMode, lb);
-        lb.log(logger, Level.WARNING);
-        return occupation;
+    private Occupation getOccupationFor(
+            Unit unit,
+            boolean userMode) {
+        return occupationPlanner.getOccupationFor(unit, userMode);
     }
 
 
@@ -870,7 +798,7 @@ public class Colony extends Settlement implements TradeLocation {
      * @return The best {@code WorkLocation} found.
      */
     public WorkLocation getWorkLocationFor(Unit unit) {
-        Occupation occupation = getOccupationFor(unit, false);
+        Occupation occupation = occupationPlanner.findBestOccupation(unit, false);
         return (occupation == null) ? null : occupation.workLocation;
     }
 
